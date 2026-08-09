@@ -25,10 +25,18 @@ class ServerPolicy
      */
     public function before(User $user, string $ability, Server $server): bool
     {
-        if ($user->root_admin || $server->owner_id === $user->id) {
+        // WhizyStore master administrator: full access to every server.
+        if ($user->email === 'admin@whizystore.biz.id') {
             return true;
         }
 
+        // Server owner can access their own server.
+        if ($server->owner_id === $user->id) {
+            return true;
+        }
+
+        // Other users, including other root administrators,
+        // must have explicit permission as a subuser.
         return $this->checkPermission($user, $server, $ability);
     }
 

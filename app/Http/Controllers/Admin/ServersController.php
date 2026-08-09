@@ -3,6 +3,7 @@
 namespace Pterodactyl\Http\Controllers\Admin;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Pterodactyl\Models\User;
 use Illuminate\Http\Response;
 use Pterodactyl\Models\Mount;
@@ -123,8 +124,38 @@ class ServersController extends Controller
      * @throws DataValidationException
      * @throws \Pterodactyl\Exceptions\Repository\RecordNotFoundException
      */
+    /**
+     * Protect destructive/suspension actions on servers.
+     */
+    private function authorizeServerAction(Request $request, Server $server): void
+    {
+        $user = $request->user();
+
+        // WhizyStore master administrator can manage every server.
+        if ($user && $user->email === 'admin@whizystore.biz.id') {
+            return;
+        }
+
+        // Other administrators may only manage servers they own.
+        if ($user && $server->owner_id === $user->id) {
+            return;
+        }
+
+        Log::warning('[SECURITY] [BLOCKED_SERVER_ACTION]', [
+            'user_id' => $user?->id,
+            'email' => $user?->email,
+            'server_id' => $server->id,
+            'server_uuid' => $server->uuid,
+            'ip' => $request->ip(),
+        ]);
+
+        abort(403, 'You are not authorized to perform this action on this server.');
+    }
+
     public function manageSuspension(Request $request, Server $server): RedirectResponse
     {
+        $this->authorizeServerAction($request, $server);
+
         $this->suspensionService->toggle($server, $request->input('action'));
         $this->alert->success(trans('admin/server.alerts.suspension_toggled', [
             'status' => $request->input('action') . 'ed',
@@ -165,6 +196,8 @@ class ServersController extends Controller
      */
     public function delete(Request $request, Server $server): RedirectResponse
     {
+        $this->authorizeServerAction($request, $server);
+
         $this->deletionService->withForce($request->filled('force_delete'))->handle($server);
         $this->alert->success(trans('admin/server.alerts.server_deleted'))->flash();
 

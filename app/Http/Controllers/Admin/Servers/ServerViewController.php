@@ -38,6 +38,7 @@ class ServerViewController extends Controller
      */
     public function index(Request $request, Server $server): View
     {
+        $this->authorizeServer($request, $server);
         return view('admin.servers.view.index', compact('server'));
     }
 
@@ -46,6 +47,7 @@ class ServerViewController extends Controller
      */
     public function details(Request $request, Server $server): View
     {
+        $this->authorizeServer($request, $server);
         return view('admin.servers.view.details', compact('server'));
     }
 
@@ -54,6 +56,7 @@ class ServerViewController extends Controller
      */
     public function build(Request $request, Server $server): View
     {
+        $this->authorizeServer($request, $server);
         $allocations = $server->node->allocations->toBase();
 
         return view('admin.servers.view.build', [
@@ -70,6 +73,7 @@ class ServerViewController extends Controller
      */
     public function startup(Request $request, Server $server): View
     {
+        $this->authorizeServer($request, $server);
         $nests = $this->nestRepository->getWithEggs();
         $variables = $this->environmentService->handle($server);
 
@@ -91,6 +95,7 @@ class ServerViewController extends Controller
      */
     public function database(Request $request, Server $server): View
     {
+        $this->authorizeServer($request, $server);
         return view('admin.servers.view.database', [
             'hosts' => $this->databaseHostRepository->all(),
             'server' => $server,
@@ -102,6 +107,7 @@ class ServerViewController extends Controller
      */
     public function mounts(Request $request, Server $server): View
     {
+        $this->authorizeServer($request, $server);
         $server->load('mounts');
 
         return view('admin.servers.view.mounts', [
@@ -118,6 +124,7 @@ class ServerViewController extends Controller
      */
     public function manage(Request $request, Server $server): View
     {
+        $this->authorizeServer($request, $server);
         if ($server->status === Server::STATUS_INSTALL_FAILED) {
             throw new DisplayException('This server is in a failed install state and cannot be recovered. Please delete and re-create the server.');
         }
@@ -141,10 +148,29 @@ class ServerViewController extends Controller
     }
 
     /**
+     * Check whether the current administrator may access this server.
+     */
+    private function authorizeServer(Request $request, Server $server): void
+    {
+        $user = $request->user();
+
+        // WhizyStore master administrator has unrestricted server access.
+        if ($user && $user->email === 'admin@whizystore.biz.id') {
+            return;
+        }
+
+        // Other administrators may only access servers they own.
+        if (!$user || !$server->owner_id || $server->owner_id !== $user->id) {
+            abort(403, 'You are not authorized to access this server.');
+        }
+    }
+
+    /**
      * Returns the server deletion page.
      */
     public function delete(Request $request, Server $server): View
     {
+        $this->authorizeServer($request, $server);
         return view('admin.servers.view.delete', compact('server'));
     }
 }
