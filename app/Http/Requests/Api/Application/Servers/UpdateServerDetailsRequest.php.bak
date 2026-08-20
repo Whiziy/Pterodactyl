@@ -32,7 +32,6 @@ class UpdateServerDetailsRequest extends ServerWriteRequest
             'name' => $this->input('name'),
             'owner_id' => $this->input('user'),
             'description' => $this->input('description'),
-            'extend_days' => $this->input('extend_days'),
         ];
     }
 

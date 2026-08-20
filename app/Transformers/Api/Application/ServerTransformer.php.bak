@@ -57,7 +57,6 @@ class ServerTransformer extends BaseTransformer
             'identifier' => $server->uuidShort,
             'name' => $server->name,
             'description' => $server->description,
-            'expires_at' => $server->expires_at ? $this->formatTimestamp($server->expires_at) : null,
             'status' => $server->status,
             // This field is deprecated, please use "status".
             'suspended' => $server->isSuspended(),
