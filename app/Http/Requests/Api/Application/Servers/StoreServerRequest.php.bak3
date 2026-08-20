@@ -96,7 +96,6 @@ class StoreServerRequest extends ApplicationApiRequest
             'allocation_limit' => array_get($data, 'feature_limits.allocations'),
             'backup_limit' => array_get($data, 'feature_limits.backups'),
             'oom_disabled' => array_get($data, 'oom_disabled'),
-            'expires_in_days' => array_get($data, 'expires_in_days'),
         ];
     }
 

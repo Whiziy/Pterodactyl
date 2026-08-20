@@ -77,18 +77,9 @@ class ServerCreationService
             ->setUserLevel(User::USER_LEVEL_ADMIN)
             ->handle(Arr::get($data, 'egg_id'), Arr::get($data, 'environment', []));
 
-        $rawExpiresInDays = Arr::get($data, 'expires_in_days');
-        if ($rawExpiresInDays === null || $rawExpiresInDays === '') {
-            $expiresInDays = 30;
-        } else {
-            $expiresInDays = (int) $rawExpiresInDays;
-            if ($expiresInDays <= 0) {
-                throw new \Pterodactyl\Exceptions\DisplayException(
-                    'expires_in_days tidak boleh 0 atau negatif — tidak ada paket unlimited di sini.'
-                );
-            }
+        if (!empty($data['expires_in_days'])) {
+            $data['expires_at'] = now()->addDays((int) $data['expires_in_days']);
         }
-        $data['expires_at'] = now()->addDays($expiresInDays);
 
         // Due to the design of the Daemon, we need to persist this server to the disk
         // before we can actually create it on the Daemon.
