@@ -47,8 +47,6 @@ class DetailsModificationService
                 'name' => Arr::get($data, 'name'),
                 'description' => Arr::get($data, 'description') ?? '',
                 'expires_at' => $expiresAt,
-                'reminded_h3' => false,
-                'reminded_h1' => false,
             ])->saveOrFail();
 
             // If the owner_id value is changed we need to revoke any tokens that exist for the server

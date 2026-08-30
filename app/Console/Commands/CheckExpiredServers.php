@@ -1,0 +1,93 @@
+<?php
+
+namespace Pterodactyl\Console\Commands;
+
+use Carbon\Carbon;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Pterodactyl\Models\Server;
+use Pterodactyl\Services\Servers\ServerDeletionService;
+
+class CheckExpiredServers extends Command
+{
+    protected $signature = 'whizy:check-expired-servers';
+    protected $description = 'Cek server expired: kirim reminder H-3/H-1 via Telegram, hapus server yang sudah lewat expired.';
+
+    public function handle(ServerDeletionService $deletionService): int
+    {
+        $token = env('TELEGRAM_BOT_TOKEN');
+        if (empty($token)) {
+            $this->warn('TELEGRAM_BOT_TOKEN belum diset di .env — reminder TIDAK akan terkirim (auto-delete tetap jalan).');
+        }
+
+        $now = Carbon::now();
+        $servers = Server::query()->whereNotNull('expires_at')->get();
+
+        $deleted = 0;
+        $remindedH3 = 0;
+        $remindedH1 = 0;
+
+        foreach ($servers as $server) {
+            $expiresAt = $server->expires_at;
+            if (!$expiresAt) {
+                continue;
+            }
+
+            if ($expiresAt->lte($now)) {
+                try {
+                    if ($token && $server->external_id) {
+                        $this->sendTelegram($token, $server->external_id,
+                            "ðï¸ Server *{$server->name}* sudah DIHAPUS karena tidak diperpanjang sebelum masa aktifnya habis."
+                        );
+                    }
+                    $deletionService->handle($server);
+                    $this->info("Deleted server #{$server->id} ({$server->name}) — expired {$expiresAt}");
+                    $deleted++;
+                } catch (\Throwable $e) {
+                    Log::error("Gagal hapus server expired #{$server->id}: " . $e->getMessage());
+                    $this->error("Gagal hapus server #{$server->id}: " . $e->getMessage());
+                }
+                continue;
+            }
+
+            $daysLeft = (int) $now->diffInDays($expiresAt, false);
+
+            if ($daysLeft <= 3 && $daysLeft > 1 && !$server->reminded_h3) {
+                if ($token && $server->external_id) {
+                    $this->sendTelegram($token, $server->external_id,
+                        "â ï¸ Server *{$server->name}* akan expired dalam ~3 hari ({$expiresAt->format('d M Y H:i')}). Perpanjang sekarang lewat bot supaya tidak terhapus otomatis."
+                    );
+                }
+                $server->update(['reminded_h3' => true]);
+                $remindedH3++;
+            }
+
+            if ($daysLeft <= 1 && !$server->reminded_h1) {
+                if ($token && $server->external_id) {
+                    $this->sendTelegram($token, $server->external_id,
+                        "ð¨ Server *{$server->name}* akan expired dalam ~1 hari ({$expiresAt->format('d M Y H:i')}). Segera perpanjang, kalau tidak server akan DIHAPUS OTOMATIS."
+                    );
+                }
+                $server->update(['reminded_h1' => true]);
+                $remindedH1++;
+            }
+        }
+
+        $this->info("Selesai. Dihapus: {$deleted}, Reminder H-3: {$remindedH3}, Reminder H-1: {$remindedH1}");
+        return self::SUCCESS;
+    }
+
+    private function sendTelegram(string $token, string $chatId, string $text): void
+    {
+        try {
+            Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                'chat_id' => $chatId,
+                'text' => $text,
+                'parse_mode' => 'Markdown',
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning("Gagal kirim reminder Telegram ke {$chatId}: " . $e->getMessage());
+        }
+    }
+}
