@@ -30,7 +30,7 @@ class CheckExpiredServers extends Command
 
         foreach ($servers as $server) {
             $expiresAt = $server->expires_at;
-            $chatId = $server->external_id ? explode(':', $chatId, 2)[0] : null;
+            $chatId = $server->external_id ? explode(':', $server->external_id, 2)[0] : null;
             if (!$expiresAt) {
                 continue;
             }
@@ -38,7 +38,7 @@ class CheckExpiredServers extends Command
             if ($expiresAt->lte($now)) {
                 try {
                     if ($token && $chatId) {
-                        $this->sendTelegram($token, $chatId,
+                        $this->sendTelegram($token, $server->external_id,
                             "ðï¸ Server *{$server->name}* sudah DIHAPUS karena tidak diperpanjang sebelum masa aktifnya habis."
                         );
                     }
@@ -56,7 +56,7 @@ class CheckExpiredServers extends Command
 
             if ($daysLeft <= 3 && $daysLeft > 1 && !$server->reminded_h3) {
                 if ($token && $chatId) {
-                    $this->sendTelegram($token, $chatId,
+                    $this->sendTelegram($token, $server->external_id,
                         "â ï¸ Server *{$server->name}* akan expired dalam ~3 hari ({$expiresAt->format('d M Y H:i')}). Perpanjang sekarang lewat bot supaya tidak terhapus otomatis."
                     );
                 }
@@ -66,7 +66,7 @@ class CheckExpiredServers extends Command
 
             if ($daysLeft <= 1 && !$server->reminded_h1) {
                 if ($token && $chatId) {
-                    $this->sendTelegram($token, $chatId,
+                    $this->sendTelegram($token, $server->external_id,
                         "ð¨ Server *{$server->name}* akan expired dalam ~1 hari ({$expiresAt->format('d M Y H:i')}). Segera perpanjang, kalau tidak server akan DIHAPUS OTOMATIS."
                     );
                 }

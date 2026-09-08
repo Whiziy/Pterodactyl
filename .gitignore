@@ -2,3 +2,5 @@
 /node_modules
 /storage/logs/*
 /.env
+*.py
+*.py

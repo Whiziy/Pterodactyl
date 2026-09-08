@@ -1,0 +1,116 @@
+<?php
+
+namespace Pterodactyl\Console\Commands;
+
+use Carbon\Carbon;
+use Illuminate\Console\Command;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Pterodactyl\Models\Server;
+use Pterodactyl\Repositories\Wings\DaemonPowerRepository;
+use Pterodactyl\Repositories\Wings\DaemonServerRepository;
+
+class EnforceCpuLimits extends Command
+{
+    protected $signature = 'whizy:enforce-cpu-limits';
+    protected $description = 'Matikan server otomatis kalau CPU melebihi batas paket secara terus-menerus, dan kirim notifikasi Telegram.';
+
+    public function handle(DaemonServerRepository $serverRepository, DaemonPowerRepository $powerRepository): int
+    {
+        $graceMinutes = (int) (env('CPU_OVERAGE_GRACE_MINUTES') ?: 5);
+        $telegramToken = env('TELEGRAM_BOT_TOKEN');
+
+        if (empty($telegramToken)) {
+            $this->warn('TELEGRAM_BOT_TOKEN belum diset — notifikasi TIDAK akan terkirim (auto-stop tetap jalan).');
+        }
+
+        $servers = Server::query()->where('cpu', '>', 0)->get();
+
+        $stopped = 0;
+        $flagged = 0;
+        $checked = 0;
+
+        foreach ($servers as $server) {
+            if ($server->isSuspended() || !is_null($server->status)) {
+                continue;
+            }
+
+            try {
+                $data = $serverRepository->setServer($server)->getDetails();
+                $checked++;
+            } catch (\Throwable $e) {
+                Log::warning("Gagal ambil stats server #{$server->id}: " . $e->getMessage());
+                continue;
+            }
+
+            $state = Arr::get($data, 'state', 'stopped');
+            $cpuAbsolute = (float) Arr::get($data, 'utilization.cpu_absolute', 0);
+            $chatId = $server->external_id ? explode(':', $server->external_id, 2)[0] : null;
+            $limit = (float) $server->cpu;
+
+            if ($state !== 'running') {
+                if ($server->cpu_overage_since) {
+                    $server->update(['cpu_overage_since' => null]);
+                }
+                continue;
+            }
+
+            if ($cpuAbsolute <= $limit) {
+                if ($server->cpu_overage_since) {
+                    $server->update(['cpu_overage_since' => null]);
+                }
+                continue;
+            }
+
+            // ── Sedang melebihi batas ────────────────────
+            if (!$server->cpu_overage_since) {
+                $server->update(['cpu_overage_since' => Carbon::now()]);
+                $flagged++;
+                continue;
+            }
+
+            $minutesOver = Carbon::parse($server->cpu_overage_since)->diffInMinutes(Carbon::now());
+            if ($minutesOver < $graceMinutes) {
+                continue;
+            }
+
+            try {
+                $powerRepository->setServer($server)->send('stop');
+                $server->update([
+                    'cpu_overage_since' => null,
+                    'cpu_auto_stopped' => true,
+                ]);
+                $stopped++;
+                $this->info("Stopped server #{$server->id} ({$server->name}) — CPU {$cpuAbsolute}% > batas {$limit}% selama {$minutesOver} menit");
+
+                if ($telegramToken && $chatId) {
+                    $this->sendTelegram($telegramToken, $server->external_id,
+                        "ð Server *{$server->name}* DIMATIKAN OTOMATIS karena pemakaian CPU melebihi batas paket kamu ({$limit}%) selama {$graceMinutes}+ menit berturut-turut.
+
+Silakan nyalakan kembali lewat bot/panel kalau sudah siap. Kalau ini sering terjadi, pertimbangkan upgrade paket atau cek proses yang berjalan di server kamu."
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::error("Gagal stop server #{$server->id}: " . $e->getMessage());
+                $this->error("Gagal stop server #{$server->id}: " . $e->getMessage());
+            }
+        }
+
+        $this->info("Selesai. Dicek: {$checked}, di-stop: {$stopped}, baru terdeteksi over-limit: {$flagged}");
+        return self::SUCCESS;
+    }
+
+    private function sendTelegram(string $token, string $chatId, string $text): void
+    {
+        try {
+            Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                'chat_id' => $chatId,
+                'text' => $text,
+                'parse_mode' => 'Markdown',
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning("Gagal kirim notifikasi Telegram ke {$chatId}: " . $e->getMessage());
+        }
+    }
+}
